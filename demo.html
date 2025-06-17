@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MP4 to HLS Converter</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 20px;
+            background: #fafafa;
+            transition: all 0.3s ease;
+        }
+        .upload-area:hover {
+            border-color: #007bff;
+            background: #f0f8ff;
+        }
+        .upload-area.dragover {
+            border-color: #007bff;
+            background: #e6f3ff;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        .upload-btn {
+            background: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.3s ease;
+        }
+        .upload-btn:hover {
+            background: #0056b3;
+        }
+        .convert-btn {
+            background: #28a745;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 20px;
+            display: none;
+            transition: background 0.3s ease;
+        }
+        .convert-btn:hover {
+            background: #1e7e34;
+        }
+        .convert-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .progress {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            margin: 20px 0;
+            overflow: hidden;
+            display: none;
+        }
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #007bff, #0056b3);
+            width: 0%;
+            transition: width 0.3s ease;
+            border-radius: 10px;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 5px;
+            display: none;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .file-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            display: none;
+        }
+        .download-area {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            display: none;
+        }
+        .download-btn {
+            background: #17a2b8;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .download-btn:hover {
+            background: #138496;
+        }
+        .video-preview {
+            margin: 20px 0;
+            text-align: center;
+        }
+        video {
+            max-width: 100%;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+            .upload-area {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MP4 to HLS Converter</h1>
+        
+        <div class="upload-area" id="uploadArea">
+            <p>Drop your MP4 file here or click to select</p>
+            <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+                Choose MP4 File
+            </button>
+            <input type="file" id="fileInput" accept="video/mp4">
+        </div>
+
+        <div class="file-info" id="fileInfo"></div>
+
+        <div class="video-preview" id="videoPreview"></div>
+
+        <button class="convert-btn" id="convertBtn">Convert to HLS</button>
+
+        <div class="progress" id="progressContainer">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+
+        <div class="status" id="status"></div>
+
+        <div class="download-area" id="downloadArea">
+            <h3>Download HLS Files:</h3>
+            <div id="downloadLinks"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { FFmpeg } from './node_modules/@ffmpeg/ffmpeg/dist/esm/index.js';
+        import { fetchFile, toBlobURL } from './node_modules/@ffmpeg/util/dist/esm/index.js';
+
+        let ffmpeg = null;
+        let selectedFile = null;
+        const hlsFiles = [];
+
+        // DOM elements
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const videoPreview = document.getElementById('videoPreview');
+        const convertBtn = document.getElementById('convertBtn');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const status = document.getElementById('status');
+        const downloadArea = document.getElementById('downloadArea');
+        const downloadLinks = document.getElementById('downloadLinks');
+
+        // Initialize FFmpeg
+        async function initFFmpeg() {
+            if (ffmpeg) return;
+            
+            showStatus('Initializing FFmpeg...', 'info');
+            
+            ffmpeg = new FFmpeg();
+            
+            ffmpeg.on('log', ({ message }) => {
+                console.log(message);
+            });
+
+            ffmpeg.on('progress', ({ progress }) => {
+                const percentage = Math.round(progress * 100);
+                updateProgress(percentage);
+            });
+
+            try {
+                const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
+                await ffmpeg.load({
+                    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+                    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+                });
+                
+                showStatus('FFmpeg initialized successfully!', 'success');
+                setTimeout(() => hideStatus(), 2000);
+            } catch (error) {
+                showStatus('Failed to initialize FFmpeg: ' + error.message, 'error');
+                console.error('FFmpeg initialization error:', error);
+            }
+        }
+
+        // File handling
+        fileInput.addEventListener('change', handleFileSelect);
+        uploadArea.addEventListener('dragover', handleDragOver);
+        uploadArea.addEventListener('drop', handleDrop);
+        uploadArea.addEventListener('dragleave', handleDragLeave);
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file && file.type === 'video/mp4') {
+                processFile(file);
+            } else {
+                showStatus('Please select a valid MP4 file', 'error');
+            }
+        }
+
+        function handleDragOver(event) {
+            event.preventDefault();
+            uploadArea.classList.add('dragover');
+        }
+
+        function handleDragLeave(event) {
+            event.preventDefault();
+            uploadArea.classList.remove('dragover');
+        }
+
+        function handleDrop(event) {
+            event.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = event.dataTransfer.files;
+            if (files.length > 0 && files[0].type === 'video/mp4') {
+                processFile(files[0]);
+            } else {
+                showStatus('Please drop a valid MP4 file', 'error');
+            }
+        }
+
+        function processFile(file) {
+            selectedFile = file;
+            
+            // Show file info
+            fileInfo.innerHTML = `
+                <strong>Selected File:</strong> ${file.name}<br>
+                <strong>Size:</strong> ${(file.size / 1024 / 1024).toFixed(2)} MB<br>
+                <strong>Type:</strong> ${file.type}
+            `;
+            fileInfo.style.display = 'block';
+            
+            // Show video preview
+            const videoURL = URL.createObjectURL(file);
+            videoPreview.innerHTML = `<video controls width="400"><source src="${videoURL}" type="video/mp4"></video>`;
+            
+            // Show convert button
+            convertBtn.style.display = 'inline-block';
+            
+            // Clear previous results
+            downloadArea.style.display = 'none';
+            hlsFiles.length = 0;
+        }
+
+        // Convert to HLS
+        convertBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+            
+            await initFFmpeg();
+            if (!ffmpeg) return;
+            
+            convertBtn.disabled = true;
+            progressContainer.style.display = 'block';
+            showStatus('Converting MP4 to HLS...', 'info');
+            
+            try {
+                // Write input file
+                await ffmpeg.writeFile('input.mp4', await fetchFile(selectedFile));
+                
+                // Convert to HLS with multiple quality levels
+                await ffmpeg.exec([
+                    '-i', 'input.mp4',
+                    '-profile:v', 'baseline',
+                    '-level', '3.0',
+                    '-start_number', '0',
+                    '-hls_time', '10',
+                    '-hls_list_size', '0',
+                    '-f', 'hls',
+                    'output.m3u8'
+                ]);
+                
+                // Read output files
+                const files = await ffmpeg.listDir('/');
+                hlsFiles.length = 0;
+                
+                for (const file of files) {
+                    if (file.name.endsWith('.m3u8') || file.name.endsWith('.ts')) {
+                        const data = await ffmpeg.readFile(file.name);
+                        hlsFiles.push({
+                            name: file.name,
+                            data: data,
+                            url: URL.createObjectURL(new Blob([data], { 
+                                type: file.name.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp2t'
+                            }))
+                        });
+                    }
+                }
+                
+                showDownloadLinks();
+                showStatus('Conversion completed successfully!', 'success');
+                
+            } catch (error) {
+                showStatus('Conversion failed: ' + error.message, 'error');
+                console.error('Conversion error:', error);
+            } finally {
+                convertBtn.disabled = false;
+                progressContainer.style.display = 'none';
+                updateProgress(0);
+            }
+        });
+
+        function showDownloadLinks() {
+            downloadLinks.innerHTML = '';
+            
+            hlsFiles.forEach(file => {
+                const link = document.createElement('a');
+                link.href = file.url;
+                link.download = file.name;
+                link.className = 'download-btn';
+                link.textContent = file.name;
+                downloadLinks.appendChild(link);
+            });
+            
+            downloadArea.style.display = 'block';
+        }
+
+        function showStatus(message, type) {
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+        }
+
+        function hideStatus() {
+            status.style.display = 'none';
+        }
+
+        function updateProgress(percentage) {
+            progressBar.style.width = percentage + '%';
+        }
+
+        // Initialize on page load
+        window.addEventListener('load', () => {
+            showStatus('Ready to convert MP4 files to HLS format', 'info');
+            setTimeout(() => hideStatus(), 3000);
+        });
+    </script>
+</body>
+</html>
